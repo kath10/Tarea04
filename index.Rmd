@@ -1,0 +1,142 @@
+---
+title: "Tarea04"
+output: html_document
+---
+
+##### Estudiante: Katherine Trejos Porras
+##### Carné: C07869
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Carga de los paquetes
+```{r carga-paquetes, message=FALSE, warning=FALSE}
+library(sf)
+library(leaflet)
+library(dplyr)
+library(DT)
+library(plotly)
+library(raster)
+library(tidyr)
+library(spData)
+```
+
+### Carga de los datos
+```{r carga-datos}
+# Carga de los datos de las orquideas de Costa Rica
+Orquideas <- 
+  st_read(
+  "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/gbif/orchidaceae-cr-registros.csv",
+   options = c(
+      "X_POSSIBLE_NAMES=decimalLongitude",
+      "Y_POSSIBLE_NAMES=decimalLatitude"
+    ),
+    quiet = TRUE
+  )
+
+
+# Carga de los datos de areas silvestres protegidas (ASP) de Costa Rica
+ASP <- 
+  st_read(
+    "https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/sinac/asp/asp-wgs84.geojson",
+    quiet = TRUE
+  )
+
+
+#Asignación del sistema de las coordenadas
+st_crs(Orquideas) = 4326
+st_crs(ASP) = 4326
+```
+
+### Limpieza
+```{r}
+# Inicio de descartar los campos vacíos de species contenidos en los datos de las orquideas
+Orquideas$species[Orquideas$species == ""] <- "especies"
+```
+
+
+```{r}
+# Descartar los registros que posean valores mayores a mil (1000) y terminar de descartar los campos vacíos de species
+Orquideas <- Orquideas %>%
+  filter(!is.na(coordinateUncertaintyInMeters) & coordinateUncertaintyInMeters <= 1000)%>%
+  filter(species!="especies")
+
+cat("Cantidad de registros después de descartar los valores mayores a mil (1000)", nrow(ASP))
+```
+
+
+```{r}
+# Descartar los registros de las ASP que son Áreas marinas protegidas
+ASP <- 
+   ASP %>%
+   filter(descripcio!="Area Marina de Manejo" & descripcio!="Area marina protegida")
+
+cat("Cantidad de registros después de descartar las areas marinas protegidas", nrow(ASP))
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+# Creación de un data con los datos de las orquídeas y de las ASP con los datos juntos y ya realizados los cambios sugeridos de limpieza
+ASP_registros <-
+  ASP %>%
+  st_join(Orquideas) %>%
+  group_by(nombre_asp) %>%
+  summarize(especies = n_distinct(species,na.rm = TRUE)) 
+```
+
+
+## Mapa
+Definición de las paletas de colores
+```{r}
+# Paleta de colores 
+colores_ASP_registros <-
+  colorNumeric(palette = "Grays",
+               domain = ASP_registros$especies,
+               na.color = "transparent")
+```
+
+```{r}
+# Paleta de colores
+colores_especies <-
+  colorNumeric(palette = "Reds",
+               domain = ASP_registros$especies,
+               na.color = "transparent")
+```
+
+Elaboración del mapa
+```{r}
+leaflet() %>%
+  addTiles(group = "OSM") %>%
+  addPolygons(
+    data = ASP_registros,
+    fillColor = ~ colores_especies(ASP_registros$especies),
+    fillOpacity = 0.7,
+    stroke = TRUE,
+    color = "black",
+    weight = 1,
+    popup = paste(
+      paste(
+        "<strong>Áreas silvestres protegidas:</strong>",
+        ASP_registros$nombre_asp
+      ),
+      paste(
+        "<strong>Cantidad de especies:</strong>",
+        ASP_registros$especies
+        
+      ),
+      sep = '<br/>'
+    ),
+    group = "Áreas silvestres protegidas - especies"
+  ) %>%
+  addLayersControl(baseGroups = c("OSM"),
+                   overlayGroups = c("Áreas silvestres protegidas - especies")) %>%
+  addLegend(
+    position = "bottomleft",
+    pal = colores_especies,
+    values = ASP_registros$especies,
+    group = "Áreas silvestres protegidas - especies",
+    title = "Cantidad de orquídeas")      
+```
+
